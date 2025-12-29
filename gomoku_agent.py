@@ -109,7 +109,7 @@ class GomokuAgent:
             type="function",
         ) for tool in [PlayMove, Resign]]
 
-    def play_game(self, game: GomokuGame, system_info: str | None = None) -> None:
+    def play_game(self, game: GomokuGame, system_info: str | None = None) -> str:
         context = ""
 
         if system_info:
@@ -127,6 +127,9 @@ class GomokuAgent:
 
         tool_usages = self.client.generate_outcome(self.instructions, self.context_history, self.tools)
         self.context_history += tool_usages
+
+        output = ""
+        move_info = ""
         for tool_use in tool_usages:
             if tool_use.type == "reasoning":
                 reasoning_summary = "\n".join([summary.text for summary in tool_use.summary])
@@ -137,12 +140,14 @@ class GomokuAgent:
                 print(f"{self.player_side.name}'s message: \n{message_content}\n\n")
 
             elif tool_use.type == "function_call":
-                output = ""
                 if tool_use.name == PlayMove.tool_name():
-                    output = PlayMove.model_validate_json(tool_use.arguments).execute(game)
+                    play_move = PlayMove.model_validate_json(tool_use.arguments)
+                    output = play_move.execute(game)
+                    move_info = f"Move: ({play_move.col}, {play_move.row})"
                 elif tool_use.name == Resign.tool_name():
                     output = Resign.model_validate_json(tool_use.arguments).execute(game, self.player_side)
-                print(f"{self.player_side.name}'s action: \n{tool_use.name}\n\n")
+                    move_info = "Resigned"
+                print(f"{self.player_side.name}'s action: \n{move_info}\n\n")
 
                 output += "\n\n"
                 output += game.render()
@@ -167,6 +172,7 @@ class GomokuAgent:
 
         print("--------------------------------\n\n")
         self.context_history += conclusion
+        return move_info
 
 
 class GomokuGameSession:
@@ -180,16 +186,15 @@ class GomokuGameSession:
         )
 
     def run(self) -> None:
-        if self.game.current_player == Player.BLACK:
-            self.black_agent.play_game(self.game, self.system_info)
-        else:
-            self.white_agent.play_game(self.game, self.system_info)
+        info = self.system_info
 
         while not self.game.result.is_terminal:
             if self.game.current_player == Player.BLACK:
-                self.black_agent.play_game(self.game)
+                info = self.black_agent.play_game(self.game, info)
             else:
-                self.white_agent.play_game(self.game)
+                info = self.white_agent.play_game(self.game, info)
+
+            info = f"{self.game.current_player.name}'s action: {info}"
 
         print("Game over.")
 
